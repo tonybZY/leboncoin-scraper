@@ -1,0 +1,46 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Permet de lancer manuellement
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        password: ${{ secrets.VPS_PASSWORD }}
+        port: 22
+        script: |
+          # Créer le répertoire si nécessaire
+          mkdir -p ~/leboncoin-scraper
+          cd ~/leboncoin-scraper
+          
+          # Clone ou pull le repo
+          if [ ! -d ".git" ]; then
+            git clone https://github.com/${{ github.repository }}.git .
+          else
+            git pull origin main
+          fi
+          
+          # Installer/Mettre à jour
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
+          
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Redémarrer le service
+          pkill -f "python.*scraper.py" || true
+          nohup python3 src/scraper.py > scraper.log 2>&1 &
+          
+          echo "✅ Déploiement terminé!"
