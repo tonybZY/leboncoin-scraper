@@ -524,4 +524,4 @@ if __name__ == '__main__':
     print("   - Minimum 30s entre chaque requête")
     print("\n" + "="*60 + "\n")
     
-    app.run(port=1372, debug=True, host='0.0.0.0')  # IMPORTANT: Écouter sur toutes les interfaces
+    app.run(port=1373, debug=True, host='0.0.0.0')  # IMPORTANT: Écouter sur toutes les interfaces
