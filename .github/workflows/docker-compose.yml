@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  scraper:
+    build: .
+    container_name: leboncoin-scraper
+    ports:
+      - "1372:1372"
+    environment:
+      - ANTICAPTCHA_API_KEY=${ANTICAPTCHA_API_KEY}
+      - LEBONCOIN_EMAIL=${LEBONCOIN_EMAIL}
+      - LEBONCOIN_PASSWORD=${LEBONCOIN_PASSWORD}
+    volumes:
+      - ./logs:/home/scraper/logs
+    restart: unless-stopped
+    networks:
+      - scraper-network
+
+  # Optionnel : Base de données pour stocker les résultats
+  postgres:
+    image: postgres:15-alpine
+    container_name: scraper-db
+    environment:
+      - POSTGRES_DB=leboncoin
+      - POSTGRES_USER=scraper
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - scraper-network
+
+  # Optionnel : Interface web pour voir les résultats
+  adminer:
+    image: adminer
+    container_name: scraper-adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - scraper-network
+
+networks:
+  scraper-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
