@@ -1,4 +1,3 @@
-cat > server_login.js << 'EOF'
 const express = require('express');
 const puppeteer = require('puppeteer');
 const app = express();
@@ -88,5 +87,3 @@ app.listen(1373, '0.0.0.0', () => {
   console.log('✅ Avec connexion automatique!');
 });
 EOF
-
-node server_login.js
