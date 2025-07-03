@@ -232,43 +232,66 @@ def scrape_leboncoin():
     phone_number = None
     
     try:
-        # Configuration Chrome avec protection maximale
+        # Configuration Chrome avec protection maximale - VERSION CORRIGÉE
         options = uc.ChromeOptions()
+        
+        # CORRECTION: Utiliser les bonnes options pour les nouvelles versions de Chrome
+        options.add_argument('--headless=new')  # Nouvelle syntaxe pour headless
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--window-size=1920,1080')
         
         # Profil Chrome persistant
         username = os.path.expanduser('~').split('/')[-1]
         profile_path = f'/Users/{username}/Desktop/scraper-leboncoin/chrome-profile-scraping'
+        
+        # Vérifier si on est sur un VPS Linux
+        if os.path.exists('/root'):
+            profile_path = '/root/chrome-profile-scraping'
+        
+        # Créer le dossier du profil s'il n'existe pas
+        if not os.path.exists(profile_path):
+            os.makedirs(profile_path)
+            
         options.add_argument(f'--user-data-dir={profile_path}')
         print(f"📁 Profil Chrome: {profile_path}")
         
         # User agent réaliste
         user_agents = [
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ]
         options.add_argument(f'--user-agent={random.choice(user_agents)}')
         
-        # Désactiver les notifications
+        # Désactiver les notifications et autres
         prefs = {
             "profile.default_content_setting_values.notifications": 2,
             "credentials_enable_service": False,
-            "profile.password_manager_enabled": False
+            "profile.password_manager_enabled": False,
+            "profile.default_content_setting_values.media_stream": 2,
+            "profile.default_content_setting_values.media_stream_mic": 2,
+            "profile.default_content_setting_values.media_stream_camera": 2,
+            "profile.default_content_setting_values.geolocation": 2
         }
         options.add_experimental_option("prefs", prefs)
+        
+        # Options spécifiques pour éviter la détection
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
         
         # Lancer Chrome
         print("🚀 Lancement de Chrome...")
         driver = uc.Chrome(options=options, version_main=None)
-        driver.maximize_window()
         wait = WebDriverWait(driver, 30)
         
-        # Supprimer webdriver property
+        # Supprimer les propriétés qui révèlent l'automatisation
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
+        driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['fr-FR', 'fr', 'en-US', 'en']})")
         
         # Se connecter à LeBonCoin
         if not login_leboncoin(driver, wait):
@@ -424,8 +447,9 @@ def scrape_leboncoin():
             print("❌ Bouton téléphone introuvable")
         
         # Screenshot final
-        driver.save_screenshot('scraping_final.png')
-        print("📸 Capture finale sauvegardée")
+        screenshot_path = '/root/scraping_final.png' if os.path.exists('/root') else 'scraping_final.png'
+        driver.save_screenshot(screenshot_path)
+        print(f"📸 Capture finale sauvegardée: {screenshot_path}")
         
         # Attente finale (comportement humain)
         random_delay(3, 5)
@@ -447,7 +471,8 @@ def scrape_leboncoin():
     except Exception as e:
         print(f"\n❌ ERREUR: {str(e)}")
         if driver:
-            driver.save_screenshot('error_screenshot.png')
+            screenshot_path = '/root/error_screenshot.png' if os.path.exists('/root') else 'error_screenshot.png'
+            driver.save_screenshot(screenshot_path)
             driver.quit()
         
         return jsonify({
@@ -499,4 +524,4 @@ if __name__ == '__main__':
     print("   - Minimum 30s entre chaque requête")
     print("\n" + "="*60 + "\n")
     
-    app.run(port=1372, debug=True)
+    app.run(port=1372, debug=True, host='0.0.0.0')  # IMPORTANT: Écouter sur toutes les interfaces
