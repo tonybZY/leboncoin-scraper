@@ -138,94 +138,164 @@ async function scrapeListing(page, url) {
     
     console.log('📊 Données extraites:', listingData.title);
     
-    // Recherche du bouton téléphone
+    // Recherche améliorée du bouton téléphone
     console.log('📞 Recherche du bouton téléphone...');
     
     let phoneNumber = null;
     
     try {
-        // Faire défiler pour voir le bouton
+        // Faire défiler pour voir plus de contenu
         await page.evaluate(() => {
-            window.scrollBy(0, window.innerHeight / 2);
+            window.scrollTo(0, document.body.scrollHeight * 0.7);
         });
         
         await randomDelay(2, 3);
         
-        // Chercher le bouton avec différents sélecteurs
-        const phoneButtonSelectors = [
-            'button:has-text("Voir le numéro")',
-            'button:has-text("numéro")',
-            'button:has-text("Afficher le numéro")',
-            '[data-qa-id*="phone"] button',
-            'button[class*="phone"]'
-        ];
+        // Debug: faire un screenshot
+        await page.screenshot({ path: '/tmp/debug_phone_search.png' });
+        console.log('📸 Screenshot de debug: /tmp/debug_phone_search.png');
         
-        let phoneButton = null;
+        // Debug: lister tous les boutons
+        const allButtons = await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button, a[role="button"], div[role="button"]'));
+            return buttons.map((btn, index) => ({
+                index: index,
+                text: btn.textContent.trim().substring(0, 50),
+                classes: btn.className,
+                isVisible: btn.offsetParent !== null
+            }));
+        });
         
-        for (const selector of phoneButtonSelectors) {
-            try {
-                phoneButton = await page.waitForSelector(selector, { timeout: 3000 });
-                if (phoneButton) {
-                    console.log('✅ Bouton téléphone trouvé');
-                    break;
-                }
-            } catch (e) {
-                continue;
-            }
-        }
+        console.log('🔍 Boutons trouvés:');
+        allButtons.filter(b => b.isVisible).forEach(btn => {
+            console.log(`  - "${btn.text}"`);
+        });
         
-        // Si pas trouvé avec les sélecteurs CSS, essayer avec XPath
-        if (!phoneButton) {
-            const xpathSelectors = [
-                "//button[contains(text(), 'Voir le numéro')]",
-                "//button[contains(., 'numéro')]",
-                "//button[contains(., 'téléphone')]"
-            ];
+        // Méthode 1: Chercher par texte avec evaluate
+        let phoneButton = await page.evaluateHandle(() => {
+            // Chercher tous les éléments cliquables
+            const clickableElements = document.querySelectorAll('button, a, div[role="button"], span[role="button"]');
             
-            for (const xpath of xpathSelectors) {
-                const elements = await page.$x(xpath);
-                if (elements.length > 0) {
-                    phoneButton = elements[0];
-                    console.log('✅ Bouton téléphone trouvé (XPath)');
-                    break;
+            for (const el of clickableElements) {
+                const text = el.textContent.toLowerCase().trim();
+                // Chercher différentes variantes
+                if (text.includes('voir le numéro') || 
+                    text.includes('afficher le numéro') ||
+                    text.includes('afficher le numero') ||
+                    text.includes('voir le numero') ||
+                    (text.includes('voir') && text.includes('num')) ||
+                    text === 'téléphone' ||
+                    text === 'appeler' ||
+                    text === 'contacter') {
+                    console.log('Bouton potentiel trouvé:', text);
+                    return el;
                 }
             }
+            
+            // Chercher aussi dans les icônes
+            const phoneIcons = document.querySelectorAll('[data-icon*="phone"], [class*="PhoneIcon"], svg[class*="phone"]');
+            for (const icon of phoneIcons) {
+                let parent = icon.parentElement;
+                while (parent && parent !== document.body) {
+                    if (parent.tagName === 'BUTTON' || parent.hasAttribute('role')) {
+                        console.log('Bouton trouvé via icône');
+                        return parent;
+                    }
+                    parent = parent.parentElement;
+                }
+            }
+            
+            return null;
+        });
+        
+        // Si pas trouvé, essayer d'autres méthodes
+        if (!phoneButton || !(await phoneButton.evaluate(el => el !== null))) {
+            console.log('Recherche alternative...');
+            
+            // Chercher dans la section contact/vendeur
+            phoneButton = await page.evaluateHandle(() => {
+                // Chercher la section vendeur
+                const sellerSections = document.querySelectorAll('[data-qa-id*="seller"], [class*="seller"], [class*="contact"], [class*="Contact"]');
+                
+                for (const section of sellerSections) {
+                    const buttons = section.querySelectorAll('button, a[href*="tel"], [role="button"]');
+                    if (buttons.length > 0) {
+                        console.log('Bouton trouvé dans section vendeur');
+                        return buttons[0];
+                    }
+                }
+                
+                // Dernière tentative : chercher n'importe quel bouton après les infos principales
+                const mainContent = document.querySelector('main, [role="main"]');
+                if (mainContent) {
+                    const allButtons = mainContent.querySelectorAll('button');
+                    // Prendre les derniers boutons (souvent le téléphone est en bas)
+                    if (allButtons.length > 0) {
+                        return allButtons[allButtons.length - 1];
+                    }
+                }
+                
+                return null;
+            });
         }
         
-        if (phoneButton) {
+        if (phoneButton && await phoneButton.evaluate(el => el !== null)) {
             // Scroll jusqu'au bouton
-            await page.evaluate((el) => {
+            await phoneButton.evaluate(el => {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, phoneButton);
+            });
             
             await randomDelay(1, 2);
             
-            // Cliquer sur le bouton
-            await phoneButton.click();
-            console.log('✅ Clic sur le bouton téléphone');
+            // Essayer de cliquer
+            try {
+                await phoneButton.click();
+                console.log('✅ Clic sur le bouton');
+            } catch (clickError) {
+                // Si le clic direct échoue, essayer avec JavaScript
+                await phoneButton.evaluate(el => el.click());
+                console.log('✅ Clic JavaScript sur le bouton');
+            }
             
             await randomDelay(3, 5);
             
+            // Screenshot après clic
+            await page.screenshot({ path: '/tmp/debug_after_click.png' });
+            console.log('📸 Screenshot après clic: /tmp/debug_after_click.png');
+            
             // Chercher le numéro de téléphone
             phoneNumber = await page.evaluate(() => {
-                // Chercher les liens tel:
+                // Méthode 1: Chercher les liens tel:
                 const telLinks = document.querySelectorAll('a[href^="tel:"]');
                 if (telLinks.length > 0) {
                     const href = telLinks[0].href;
                     return href.replace('tel:', '').replace(/\D/g, '');
                 }
                 
-                // Chercher par regex dans le texte
-                const phoneRegex = /0[1-9](?:[\s.-]?\d{2}){4}/g;
-                const text = document.body.innerText || '';
-                const matches = text.match(phoneRegex);
+                // Méthode 2: Chercher un numéro qui vient d'apparaître
+                const phoneRegex = /(?:(?:\+|00)33[\s.-]?(?:\(0\)[\s.-]?)?|0)[1-9](?:[\s.-]?\d{2}){4}/g;
                 
-                if (matches) {
-                    for (const match of matches) {
-                        const cleaned = match.replace(/\D/g, '');
-                        if (cleaned.length === 10) {
-                            return cleaned;
+                // Chercher dans tous les éléments
+                const allElements = Array.from(document.querySelectorAll('*'));
+                for (const el of allElements) {
+                    if (el.children.length === 0 && el.textContent) {
+                        const matches = el.textContent.match(phoneRegex);
+                        if (matches) {
+                            const cleaned = matches[0].replace(/[\s.-]/g, '').replace(/^\+33/, '0').replace(/^0033/, '0');
+                            if (cleaned.length === 10 && cleaned.startsWith('0')) {
+                                return cleaned;
+                            }
                         }
+                    }
+                }
+                
+                // Méthode 3: Chercher dans les nouveaux éléments (modal, popup)
+                const modals = document.querySelectorAll('[role="dialog"], [class*="modal"], [class*="Modal"], [class*="popup"]');
+                for (const modal of modals) {
+                    const text = modal.textContent;
+                    const matches = text.match(phoneRegex);
+                    if (matches) {
+                        return matches[0].replace(/[\s.-]/g, '').replace(/^\+33/, '0').replace(/^0033/, '0');
                     }
                 }
                 
@@ -239,6 +309,21 @@ async function scrapeListing(page, url) {
             }
         } else {
             console.log('❌ Bouton téléphone introuvable');
+            
+            // En dernier recours, chercher si le numéro est déjà visible
+            phoneNumber = await page.evaluate(() => {
+                const phoneRegex = /(?:(?:\+|00)33[\s.-]?(?:\(0\)[\s.-]?)?|0)[1-9](?:[\s.-]?\d{2}){4}/g;
+                const text = document.body.textContent;
+                const matches = text.match(phoneRegex);
+                if (matches) {
+                    return matches[0].replace(/[\s.-]/g, '').replace(/^\+33/, '0').replace(/^0033/, '0');
+                }
+                return null;
+            });
+            
+            if (phoneNumber) {
+                console.log('ℹ️ Numéro trouvé sans clic:', phoneNumber);
+            }
         }
     } catch (error) {
         console.error('❌ Erreur récupération téléphone:', error.message);
@@ -277,7 +362,7 @@ app.post('/scrape', async (req, res) => {
     let browser = null;
     
     try {
-        // Lancer Puppeteer - CORRECTION ICI
+        // Lancer Puppeteer
         console.log('🚀 Lancement de Puppeteer...');
         browser = await puppeteer.launch({
             headless: 'new',
@@ -290,10 +375,10 @@ app.post('/scrape', async (req, res) => {
                 '--no-zygote',
                 '--single-process',
                 '--disable-gpu',
-                '--user-data-dir=/tmp/puppeteer',  // CORRECTION AJOUTÉE
-                '--disable-software-rasterizer'     // CORRECTION AJOUTÉE
+                '--user-data-dir=/tmp/puppeteer',
+                '--disable-software-rasterizer'
             ],
-            ignoreDefaultArgs: ['--disable-extensions']  // CORRECTION AJOUTÉE
+            ignoreDefaultArgs: ['--disable-extensions']
         });
         
         const page = await browser.newPage();
@@ -314,7 +399,7 @@ app.post('/scrape', async (req, res) => {
         await browser.close();
         
         console.log('\n' + '='.repeat(60));
-        console.log('✅ SCRAPING TERMINÉ AVEC SUCCÈS!');
+        console.log('✅ SCRAPING TERMINÉ!');
         console.log('='.repeat(60) + '\n');
         
         res.json({
@@ -345,14 +430,23 @@ app.get('/test', (req, res) => {
         email: CONFIG.LEBONCOIN_EMAIL,
         anticaptcha_key: CONFIG.ANTICAPTCHA_API_KEY.substring(0, 10) + '...',
         message: 'Serveur Puppeteer prêt!',
-        version: '2.0'
+        version: '2.1'
+    });
+});
+
+// Route de santé
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
     });
 });
 
 // Démarrage du serveur
 app.listen(CONFIG.PORT, '0.0.0.0', () => {
     console.log('\n' + '='.repeat(60));
-    console.log('🚀 SERVEUR LEBONCOIN PUPPETEER V2.0');
+    console.log('🚀 SERVEUR LEBONCOIN PUPPETEER V2.1');
     console.log('='.repeat(60));
     console.log(`📡 Port: ${CONFIG.PORT}`);
     console.log(`📧 Email: ${CONFIG.LEBONCOIN_EMAIL}`);
@@ -361,5 +455,6 @@ app.listen(CONFIG.PORT, '0.0.0.0', () => {
     console.log('\n📌 Endpoints:');
     console.log(`   POST http://localhost:${CONFIG.PORT}/scrape`);
     console.log(`   GET  http://localhost:${CONFIG.PORT}/test`);
+    console.log(`   GET  http://localhost:${CONFIG.PORT}/health`);
     console.log('\n' + '='.repeat(60) + '\n');
 });
